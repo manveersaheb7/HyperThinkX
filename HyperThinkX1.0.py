@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import urllib.request
 import re
@@ -365,7 +366,7 @@ class JSONMemoryManager:
             "u": str(user) if user else "",
             "a": str(assistant) if assistant else ""
         })
-        self.data["chat_turns"] = self.data["chat_turns"][-15:]
+        self.data["chat_turns"] = self.data["chat_turns"][-5:]
         self.save()
 
     def add_research_record(self, record):
