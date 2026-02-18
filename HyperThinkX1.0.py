@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import urllib.request
 import re
@@ -6,11 +7,9 @@ import json
 import time
 import queue
 import threading
-import subprocess
 import webbrowser
 import speech_recognition as sr
 from datetime import datetime
-from PyQt5.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QLineEdit,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel,
@@ -620,97 +619,6 @@ class WebSearchManager:
         if count >= 2: return "MEDIUM", f"{count} sources indexed"
         return "LOW", f"Limited data ({count} source)"
 
-# --- WEB SEARCH & SCRAPING: WITH DEADLINE MANAGEMENT ---
-class WebSearchManager:
-    @staticmethod
-    def search_with_retry(query, max_results, retries=None):
-        if retries is None:
-            retries = CONFIG.MAX_RETRIES
-        if not DEPS.ddgs:
-            return []
-            
-        for attempt in range(retries + 1):
-            try:
-                with DEPS.ddgs() as ddgs:
-                    # Support for different DDGS versions
-                    try:
-                        return list(ddgs.text(query, max_results=max_results))
-                    except TypeError:
-                        return list(ddgs.text(query))
-            except Exception as e:
-                Logger.error(f"Search attempt {attempt + 1} failed: {e}")
-                if attempt < retries:
-                    time.sleep(CONFIG.RETRY_DELAY)
-        return []
-
-    @staticmethod
-    def scrape(url, timeout=6.0, char_limit=5000):
-        if not (DEPS.requests and DEPS.bs4):
-            return ""
-        try:
-            # Using headers to avoid bot detection
-            resp = DEPS.requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
-            if 200 <= resp.status_code < 300:
-                soup = DEPS.bs4(resp.text, "html.parser")
-                # Remove junk to save tokens
-                for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
-                    tag.decompose()
-                return " ".join(soup.get_text().split())[:char_limit]
-        except Exception as e:
-            Logger.error(f"Scrape failed for {url}: {e}")
-        return ""
-
-    @staticmethod
-    def gather_intel(query, mode, deadline):
-        """Scrapes web data but respects the time deadline."""
-        start_time = time.time()
-        limit = 3 if mode == "quick" else 6
-        
-        raw_results = WebSearchManager.search_with_retry(query, limit)
-        processed = []
-        
-        for i, res in enumerate(raw_results, 1):
-            # If we are nearing the deadline, stop scraping more sites
-            if time.time() - start_time > deadline * 0.8:
-                Logger.log("Web Research deadline reached. Finalizing current data.")
-                break
-                
-            entry = {
-                "id": i, "title": res.get("title", ""),
-                "url": res.get("href", ""), "snippet": res.get("body", "")
-            }
-            
-            if mode == "deep":
-                COMM.status_signal.emit(f"Deep scanning [{i}/{limit}]...")
-                full_text = WebSearchManager.scrape(entry["url"])
-                if full_text:
-                    entry["content"] = full_text
-                    
-            processed.append(entry)
-            
-        return processed
-
-    @staticmethod
-    def format_sources(sources):
-        if not sources:
-            return "(No external sources found)"
-        formatted = []
-        for s in sources:
-            block = f"[{s['id']}] {s['title']} ({s['url']})\nSummary: {s['snippet']}"
-            if s.get("content"):
-                block += f"\nContent: {s['content'][:800]}..." # Token limit optimization
-            formatted.append(block)
-        return "\n\n".join(formatted)
-
-    @staticmethod
-    def compute_source_confidence(sources):
-        if not sources: return "LOW", "No valid sources"
-        count = len(sources)
-        has_deep = any(s.get("content") for s in sources)
-        
-        if count >= 4 and has_deep: return "HIGH", f"{count} sources + deep analysis"
-        if count >= 2: return "MEDIUM", f"{count} sources indexed"
-        return "LOW", f"Limited data ({count} source)"
 # LLM ENGINE
 class LLMEngine:
     @staticmethod
